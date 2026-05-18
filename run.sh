@@ -6,6 +6,8 @@ cd "$PROJECT_DIR"
 echo "[Runner] Zalo-TG bridge runner started"
 echo "[Runner] Working directory: $PROJECT_DIR"
 
+export ZALO_TG_RUNNER=1
+
 while true; do
   echo "[Runner] Starting bridge..."
   npm start

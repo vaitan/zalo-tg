@@ -75,13 +75,22 @@ export function startUpdateChecker(bot: Telegraf): void {
       // 3. build
       execSync('npm run build', { cwd: PROJECT_ROOT, stdio: 'pipe', timeout: 120_000 });
 
-      await ctx.editMessageText(
-        '✅ <b>Cập nhật thành công!</b>\nĐang khởi động lại...',
-        { parse_mode: 'HTML' },
-      ).catch(() => undefined);
-
-      console.log('[Updater] Update complete — restarting via exit code 42');
-      setTimeout(() => process.exit(42), 500);
+      const isRunner = !!process.env.ZALO_TG_RUNNER;
+      if (isRunner) {
+        await ctx.editMessageText(
+          '✅ <b>Cập nhật thành công!</b>\nĐang khởi động lại...',
+          { parse_mode: 'HTML' },
+        ).catch(() => undefined);
+        console.log('[Updater] Update complete — restarting via exit code 42');
+        setTimeout(() => process.exit(42), 500);
+      } else {
+        await ctx.editMessageText(
+          '✅ <b>Cập nhật thành công!</b>\nChạy <code>./run.sh</code> thay vì <code>npm start</code> để tự động restart.\nHoặc khởi động lại thủ công.',
+          { parse_mode: 'HTML' },
+        ).catch(() => undefined);
+        console.log('[Updater] Update complete — restart manually (run.sh not detected)');
+        _isUpdating = false;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[Updater] Update failed:', msg);
