@@ -1,4 +1,4 @@
-import { ThreadType, type AttachmentSource } from 'zca-js';
+import { Reactions, ThreadType, type AttachmentSource } from 'zca-js';
 import path from 'path';
 import { createReadStream } from 'fs';
 import { readFile, stat } from 'fs/promises';
@@ -1615,8 +1615,8 @@ export function setupTelegramHandler(
         '😘':  ':-*',
         '🥰':  ';xx',
         '😍':  ';xx',
-        '🤣':  ":'>",
-        '😂':  ":'>",
+        '🤣':  Reactions.TEARS_OF_JOY,
+        '😂':  Reactions.TEARS_OF_JOY,
         '💩':  '/-shit',
         '🌹':  '/-rose',
         '💔':  '/-break',
