@@ -1472,6 +1472,17 @@ ${escapeHtml(photoCaption)}`
     }
   });
 
+  // Catch-up stream from zca-js after reconnect.
+  // Replays recent messages through the same main handler to refill bridges.
+  api.listener.on('old_messages', (messages: ZaloMessage[]) => {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const sorted = [...messages].sort((a, b) => Number(a?.data?.ts ?? 0) - Number(b?.data?.ts ?? 0));
+    console.log(`[Zalo→TG] Catch-up old_messages: replay ${sorted.length} item(s)`);
+    for (const oldMsg of sorted) {
+      api.listener.emit('message', oldMsg);
+    }
+  });
+
   // ── Undo (thu hồi tin nhắn) ────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   api.listener.on('undo', async (undo: any) => {
@@ -1665,6 +1676,17 @@ ${escapeHtml(photoCaption)}`
       }, 600);
     } catch (err) {
       console.error('[ZaloHandler] Reaction error:', err);
+    }
+  });
+
+  // Catch-up stream from zca-js after reconnect.
+  // Replays reaction history through the same reaction pipeline + dedupe.
+  api.listener.on('old_reactions', (reactions: any[], isGroup: boolean) => {
+    if (!Array.isArray(reactions) || reactions.length === 0) return;
+    console.log(`[Zalo→TG] Catch-up old_reactions: replay ${reactions.length} item(s), isGroup=${isGroup}`);
+    for (const reaction of reactions) {
+      if (reaction && reaction.isGroup === undefined) reaction.isGroup = isGroup;
+      api.listener.emit('reaction', reaction);
     }
   });
 

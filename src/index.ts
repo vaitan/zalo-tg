@@ -1,5 +1,5 @@
 import { getZaloApi, resetZaloApi } from './zalo/client.js';
-import { CloseReason } from 'zca-js';
+import { CloseReason, ThreadType } from 'zca-js';
 import { setupZaloHandler } from './zalo/handler.js';
 import { tgBot, syncTelegramCommands } from './telegram/bot.js';
 import { setupTelegramHandler } from './telegram/handler.js';
@@ -17,6 +17,8 @@ process.on('uncaughtException', (err) => {
 
 // ── Module-level ref to Telegram handler's API setter (used by reconnect) ──────
 let _setZaloApi: ((api: Awaited<ReturnType<typeof getZaloApi>>) => void) | null = null;
+let _reconnectInProgress = false;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── Boot Zalo (also used when /login swaps in a fresh API) ───────────────────
 
@@ -45,25 +47,36 @@ async function startZalo(
 ): Promise<void> {
   if (!isReconnect) void pruneLeftGroupTopics(api);
   await setupZaloHandler(api);
+  if (isReconnect) {
+    api.listener.once('connected', () => {
+      try {
+        // Recover recent gap after disconnect (messages + reactions in both DM/group).
+        api.listener.requestOldMessages(ThreadType.User);
+        api.listener.requestOldMessages(ThreadType.Group);
+        api.listener.requestOldReactions(ThreadType.User);
+        api.listener.requestOldReactions(ThreadType.Group);
+        console.log('[Boot] Requested catch-up sync after reconnect');
+      } catch (err) {
+        console.warn('[Boot] Failed to request catch-up sync:', err);
+      }
+    });
+  }
   api.listener.start();
   console.log(`[Boot] Zalo listener ${isReconnect ? 're' : ''}started ✓`);
 
-  // Auto-reconnect on unexpected disconnects (skip on intentional stop)
-  api.listener.once('disconnected', (code: CloseReason, _reason: string) => {
-    if ((code as number) === 1000 /* ManualClosure */) return;
-    console.warn(`[Boot] Zalo disconnected (code=${code}), reconnecting in 5 s…`);
-    tgBot.telegram.sendMessage(
-      config.telegram.groupId,
-      '⚠️ Zalo bị ngắt kết nối, đang thử kết nối lại…',
-    ).catch(() => undefined);
-    setTimeout(() => {
+  const scheduleReconnect = (delayMs: number): void => {
+    if (_reconnectTimer || _reconnectInProgress) return;
+    _reconnectTimer = setTimeout(() => {
+      _reconnectTimer = null;
       void (async () => {
+        if (_reconnectInProgress) return;
+        _reconnectInProgress = true;
         try {
           resetZaloApi();
           const newApi = await getZaloApi();
           _setZaloApi?.(newApi);
           await startZalo(newApi, true);
-          tgBot.telegram.sendMessage(config.telegram.groupId, '✅ Zalo đã kết nối lại.').catch(() => undefined);
+          tgBot.telegram.sendMessage(config.telegram.groupId, '✅ Zalo đã kết nối lại và đang đồng bộ lại tin gần đây.').catch(() => undefined);
           console.log('[Boot] Zalo reconnected ✓');
         } catch (err) {
           console.error('[Boot] Zalo reconnect failed:', err);
@@ -72,9 +85,40 @@ async function startZalo(
             '⚠️ Kết nối lại Zalo thất bại. Hãy dùng <b>/login</b> để đăng nhập lại.',
             { parse_mode: 'HTML' },
           ).catch(() => undefined);
+        } finally {
+          _reconnectInProgress = false;
         }
       })();
-    }, 5_000);
+    }, delayMs);
+  };
+
+  // Auto-reconnect only on closings that are safe to recover automatically.
+  api.listener.once('disconnected', (code: CloseReason, reason: string) => {
+    if (code === CloseReason.ManualClosure) return;
+    if (code === CloseReason.DuplicateConnection) {
+      console.warn(`[Boot] Zalo disconnected: duplicate connection (code=${code}, reason=${reason})`);
+      tgBot.telegram.sendMessage(
+        config.telegram.groupId,
+        '⚠️ Zalo bị ngắt do đăng nhập trùng phiên (duplicate connection). Đóng phiên Zalo Web/PC khác rồi dùng <b>/login</b> nếu cần.',
+        { parse_mode: 'HTML' },
+      ).catch(() => undefined);
+      return;
+    }
+    if (code === CloseReason.KickConnection) {
+      console.warn(`[Boot] Zalo disconnected: kicked connection (code=${code}, reason=${reason})`);
+      tgBot.telegram.sendMessage(
+        config.telegram.groupId,
+        '⚠️ Zalo đã ngắt phiên bridge (kick connection). Vui lòng đăng nhập lại bằng <b>/login</b>.',
+        { parse_mode: 'HTML' },
+      ).catch(() => undefined);
+      return;
+    }
+    console.warn(`[Boot] Zalo disconnected (code=${code}, reason=${reason}), reconnecting in 5 s…`);
+    tgBot.telegram.sendMessage(
+      config.telegram.groupId,
+      '⚠️ Zalo bị ngắt kết nối, đang thử kết nối lại…',
+    ).catch(() => undefined);
+    scheduleReconnect(5_000);
   });
 }
 
@@ -165,4 +209,3 @@ main().catch((err: unknown) => {
   console.error('[Boot] Fatal error:', err);
   process.exit(1);
 });
-

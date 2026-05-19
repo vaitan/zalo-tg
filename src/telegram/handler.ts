@@ -1242,6 +1242,16 @@ export function setupTelegramHandler(
 
   // ── Admin panel ──────────────────────────────────────────────────────────
 
+  // ── /update — manual update check ────────────────────────────────────────
+  tgBot.command('update', async (ctx) => {
+    if (ctx.chat.id !== config.telegram.groupId) return;
+    const { triggerUpdateCheck } = await import('../updater.js');
+    const found = await triggerUpdateCheck(ctx.telegram);
+    if (!found) {
+      await ctx.reply('✅ Bridge đã ở phiên bản mới nhất.', { parse_mode: 'HTML' });
+    }
+  });
+
   /** Reusable back-to-menu markup */
   const adminBackMarkup = () => ({
     inline_keyboard: [[{ text: '◀️ Quay lại', callback_data: 'admin:menu' }]],
