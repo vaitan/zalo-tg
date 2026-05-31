@@ -779,6 +779,8 @@ export async function setupZaloHandler(api: ZaloAPI): Promise<void> {
         const childnumber: number = (media as { childnumber?: number }).childnumber ?? 0;
         const albumKey = `${zaloId}:${senderUid}`;
 
+        console.log(`[ZaloHandler] Photo: msgId=${msg.data.msgId} childnumber=${childnumber} group=${type === 1} url=${url.substring(0, 80)}...`);
+
         // If childnumber > 0 OR there's already a buffer for this key → album mode
         // (detected via the add callback which reuses or creates the buffer)
 

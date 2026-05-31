@@ -997,9 +997,24 @@ export const zaloAlbumStore = {
   ): void {
     // If a new album (childnumber==0) arrives while a buffer exists for
     // the same key, flush the old buffer immediately to prevent album merging.
+    // HOWEVER, if the existing buffer already contains this exact URL, it's a
+    // Zalo re-emit (duplicate event with a different msgId) — DON'T flush,
+    // just merge msgIds into the existing buffer instead.
     if (childnumber === 0) {
       const existing = _zaloAlbumBuffers.get(key);
       if (existing) {
+        if (existing.urls.includes(url)) {
+          // Duplicate re-emit — absorb into existing buffer, don't flush
+          clearTimeout(existing.timer);
+          existing.zaloMsgIds.push(...msgIds);
+          existing.timer = setTimeout(() => {
+            _zaloAlbumBuffers.delete(key);
+            onFlush({ urls: existing.urls, zaloMsgIds: existing.zaloMsgIds, ...meta });
+          }, 200);
+          console.log(`[zaloAlbumStore] Absorbed duplicate childnumber=0 event (key=${key}, url already in buffer)`);
+          return;
+        }
+        // Genuinely new album — flush old buffer first
         clearTimeout(existing.timer);
         _zaloAlbumBuffers.delete(key);
         setImmediate(() => onFlush({ urls: existing.urls, zaloMsgIds: existing.zaloMsgIds, ...meta }));
@@ -1008,7 +1023,14 @@ export const zaloAlbumStore = {
     const existing = _zaloAlbumBuffers.get(key);
     if (existing) {
       clearTimeout(existing.timer);
-      existing.urls.push(url);
+      // Deduplicate URLs — Zalo group chats can re-emit the same photo event
+      // with a different msgId, causing identical images to be buffered.
+      // Only add the URL if it's not already in the buffer.
+      if (!existing.urls.includes(url)) {
+        existing.urls.push(url);
+      } else {
+        console.log(`[zaloAlbumStore] Skipping duplicate URL in album buffer (key=${key}, urls=${existing.urls.length})`);
+      }
       existing.zaloMsgIds.push(...msgIds);
       existing.timer = setTimeout(() => {
         _zaloAlbumBuffers.delete(key);
