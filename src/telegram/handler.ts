@@ -36,9 +36,11 @@ function splitLongText(text: string): string[] {
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 
-import type { ZaloAPI } from '../zalo/types.js';
+import type { ZaloAPI, ZaloMessage } from '../zalo/types.js';
+import { ZALO_MSG_TYPES } from '../zalo/types.js';
 import { store, msgStore, userCache, friendsCache, groupsCache, sentMsgStore, pollStore, mediaGroupStore, reactionEchoStore, reactionSummaryStore, reactionEventDedupeStore, aliasCache, markRecalled, type ZaloQuoteData } from '../store.js';
-import { getAutoReplyState, setAutoReplyEnabled } from '../zalo/autoReply.js';
+import { getAutoReplyState, setAutoReplyEnabled, AUTO_REPLY_COOLDOWN_MIN, AUTO_REPLY_MAX_PER_HOUR } from '../zalo/autoReply.js';
+import { replayHistoryMessages } from '../zalo/handler.js';
 import { tgBot } from './bot.js';
 import { config } from '../config.js';
 import { downloadToTemp, cleanTemp, convertToM4a, extractVideoThumbnail, convertWebmToGif } from '../utils/media.js';
@@ -695,18 +697,18 @@ export function setupTelegramHandler(
         return;
       }
       // Oldest → newest so the replayed order matches a natural conversation.
-      const sorted = [...msgs].sort(
-        (a, b) => Number((a as { data?: { ts?: unknown } })?.data?.ts ?? 0)
-          - Number((b as { data?: { ts?: unknown } })?.data?.ts ?? 0),
-      );
-      // Reuse the live message pipeline; already-synced messages dedupe themselves.
-      for (const m of sorted) {
-        currentApi.listener.emit('message', m);
-        await new Promise(r => setTimeout(r, 300)); // keep order + avoid rate limiting
-      }
+      // Skip polls: replaying a poll-create event would spawn a duplicate live
+      // Telegram poll. Reactions/undo/seen arrive on separate listeners (not as
+      // 'message'), so they are never replayed here.
+      const sorted = (msgs as ZaloMessage[])
+        .filter(m => (m as { data?: { msgType?: string } })?.data?.msgType !== ZALO_MSG_TYPES.POLL)
+        .sort((a, b) => Number(a?.data?.ts ?? 0) - Number(b?.data?.ts ?? 0));
+      // Reuse the live pipeline and AWAIT each message so order is preserved even
+      // for slow media; already-synced messages dedupe themselves.
+      const replayed = await replayHistoryMessages(sorted);
       await ctx.telegram.sendMessage(
         config.telegram.groupId,
-        `✅ Đã nạp ${sorted.length} tin nhắn lịch sử (tin đã đồng bộ sẽ tự bỏ qua).`,
+        `✅ Đã nạp ${replayed} tin nhắn lịch sử (tin đã đồng bộ sẽ tự bỏ qua).`,
         replyOpts,
       );
     } catch (err) {
@@ -763,7 +765,8 @@ export function setupTelegramHandler(
       await ctx.telegram.sendMessage(
         config.telegram.groupId,
         `🟢 Đã BẬT auto-reply.\nNội dung: <i>${escapeHtml(message)}</i>\n\n`
-        + `<i>Chỉ tự trả lời tin nhắn riêng (DM), mỗi người tối đa 1 lần / 10 phút.</i>`,
+        + `<i>Chỉ tự trả lời tin nhắn riêng (DM), mỗi người tối đa 1 lần / ${AUTO_REPLY_COOLDOWN_MIN} phút `
+        + `(toàn hệ thống tối đa ${AUTO_REPLY_MAX_PER_HOUR} tin/giờ).</i>`,
         { ...replyOpts, parse_mode: 'HTML' },
       );
       return;
