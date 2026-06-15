@@ -1891,6 +1891,76 @@ export function setupTelegramHandler(
         ?? 0,
       );
 
+      // ── Recall shortcut: react 🙈 to undo a message (no command needed) ──────
+      // Telegram never tells bots when a message is *deleted*, so a plain
+      // right-click → Delete can't be mirrored. Reacting with a dedicated emoji
+      // is the closest one-tap gesture the Bot API actually delivers, so we use
+      // 🙈 as a "recall" trigger: undo it on Zalo, then delete the Telegram copy
+      // so it disappears on both sides. The emoji is intercepted here and never
+      // forwarded as a normal Zalo reaction.
+      const RECALL_TRIGGER_EMOJI = '🙈';
+      if (tgEmoji === RECALL_TRIGGER_EMOJI) {
+        // Telegram redelivers reaction updates on reconnect; skip duplicates so
+        // we never undo twice and then report a false "recall failed".
+        if (reactionEventDedupeStore.isDuplicateTgOutbound({ chatId, messageId: tgMsgId, actorId, emoji: tgEmoji })) {
+          return;
+        }
+        // Snapshot the reconnectable Zalo singleton so a mid-recall reconnect
+        // can't swap it out under us.
+        const api = currentApi;
+        const { ThreadType } = await import('zca-js');
+        let zaloId: string | undefined;
+        let threadType: 0 | 1 = 0;
+        try {
+          const sent = sentMsgStore.get(tgMsgId);
+          if (sent) {
+            // Messages we sent TG→Zalo.
+            zaloId = sent.zaloId;
+            threadType = sent.threadType;
+            const ztype = sent.threadType === 1 ? ThreadType.Group : ThreadType.User;
+            for (const mid of sent.msgIds) {
+              await api.undo({ msgId: mid, cliMsgId: 0 }, sent.zaloId, ztype);
+              markRecalled(String(mid));
+            }
+          } else {
+            // Zalo→TG forwarded messages (only succeeds if it was our own message).
+            const quote = msgStore.getQuote(tgMsgId);
+            if (!quote) {
+              console.log(`[TG→Zalo] Recall(🙈): no Zalo mapping for TG msg ${tgMsgId}`);
+              return;
+            }
+            zaloId = quote.zaloId;
+            threadType = quote.threadType;
+            const ztype = quote.threadType === 1 ? ThreadType.Group : ThreadType.User;
+            await api.undo(
+              { msgId: Number(quote.msgId), cliMsgId: quote.cliMsgId ? Number(quote.cliMsgId) : 0 },
+              quote.zaloId,
+              ztype,
+            );
+            markRecalled(quote.msgId);
+          }
+
+          // Recalled on Zalo → remove the Telegram copy too, mirroring a delete.
+          try {
+            await ctx.telegram.deleteMessage(chatId, tgMsgId);
+          } catch (delErr) {
+            console.warn('[TG→Zalo] Recall(🙈): Zalo recalled but TG delete failed:', delErr);
+          }
+          console.log(`[TG→Zalo] Recall(🙈) on TG msg ${tgMsgId}`);
+        } catch (err) {
+          console.error('[TG→Zalo] Recall(🙈) error:', err);
+          // Let the user know why nothing happened (e.g. not their message, or
+          // past Zalo's recall window) instead of failing silently.
+          const topicId = zaloId !== undefined ? store.getTopicByZalo(zaloId, threadType) : undefined;
+          await ctx.telegram.sendMessage(
+            chatId,
+            '❌ Không thu hồi được (chỉ thu hồi được tin của bạn, trong thời gian Zalo cho phép).',
+            topicId !== undefined ? { message_thread_id: topicId } : {},
+          ).catch(() => {});
+        }
+        return; // 🙈 is a control gesture — never forward it as a Zalo reaction
+      }
+
       if (reactionEventDedupeStore.isDuplicateTgOutbound({ chatId, messageId: tgMsgId, actorId, emoji: tgEmoji })) {
         console.log(`[TG→Zalo] Reaction: skip duplicate update chat=${chatId} msg=${tgMsgId} actor=${actorId} emoji=${tgEmoji}`);
         return;
