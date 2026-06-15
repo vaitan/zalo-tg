@@ -1,4 +1,5 @@
 import { ThreadType, FriendEventType } from 'zca-js';
+import type { TelegramEmoji } from 'telegraf/types';
 import { createReadStream } from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
@@ -1619,6 +1620,33 @@ ${escapeHtml(photoCaption)}`
     '':          '❌',  // remove reaction
   };
 
+  // Map a Zalo reaction icon → the closest emoji Telegram actually allows as a
+  // *reaction* (Telegram restricts reactions to a fixed set, narrower than
+  // arbitrary emoji). Icons without an entry here can't be shown as a native
+  // Telegram reaction and fall back to the summary-reply method.
+  const ZALO_TO_TG_REACTION: Record<string, TelegramEmoji> = {
+    '/-heart':  '❤',  // HEART
+    '/-strong': '👍',  // LIKE
+    ':>':       '😁',  // HAHA
+    ':o':       '🤯',  // WOW
+    ':-((':     '😢',  // CRY
+    ':((':      '😭',  // VERY_SAD
+    '--b':      '😢',  // SAD
+    ':-h':      '😡',  // ANGRY
+    ':-*':      '😘',  // KISS
+    ';xx':      '🥰',  // LOVE
+    ":')":      '🤣',  // TEARS_OF_JOY
+    '/-shit':   '💩',  // SHIT
+    '/-break':  '💔',  // BROKEN_HEART
+    '/-weak':   '👎',  // DISLIKE
+    ';-/':      '🤔',  // CONFUSED
+    '/-ok':     '👌',  // OK
+    '_()_':     '🙏',  // PRAY
+    '/-thanks': '🙏',  // THANKS
+    '/-bd':     '🎉',  // BIRTHDAY
+    'x-)':      '😎',  // (cool)
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   api.listener.on('reaction', async (reaction: any) => {
     try {
@@ -1673,6 +1701,30 @@ ${escapeHtml(photoCaption)}`
       const type   = (reaction?.isGroup ? 1 : 0) as 0 | 1;
       const topicId = store.getTopicByZalo(zaloId, type);
       if (topicId === undefined) return;
+
+      // In 1-1 DMs, attach the reaction directly onto the Telegram message
+      // (clean, no reply) — there's only one possible reactor, so no name is
+      // needed. A bot reaction shows as the bot and Telegram can only hold one
+      // reaction per message, which is fine for a single peer but would collapse
+      // distinct reactions in a group; so groups always fall through to the
+      // named summary reply below, which can tell multiple reactors apart.
+      // The bot's own reactions don't generate message_reaction updates, so this
+      // can't echo back to Zalo. Unmappable/rejected icons also fall through.
+      const tgReaction = ZALO_TO_TG_REACTION[rIcon];
+      if (type === 0 && tgReaction) {
+        try {
+          await tg.setMessageReaction(
+            config.telegram.groupId,
+            tgMsgId,
+            [{ type: 'emoji', emoji: tgReaction }],
+          );
+          return; // shown natively on the message — no reply message
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          console.warn(`[ZaloHandler] Native reaction "${tgReaction}" rejected, using summary reply: ${m}`);
+          // fall through to the named summary reply
+        }
+      }
 
       const actorName = rawName || await resolveUserDisplayName(api, actorUid || undefined, 'ai đó');
 
