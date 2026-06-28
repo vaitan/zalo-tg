@@ -47,7 +47,7 @@ import { downloadToTemp, cleanTemp, convertToM4a, extractVideoThumbnail, convert
 import { triggerQRLogin } from '../zalo/client.js';
 import { triggerAppLogin } from '../zalo/loginApp.js';
 import { invalidateAppSession, appGetReceivedFriendRequests, appGetSentFriendRequests, appGetGroupInfo, appGetGroupMembersInfo } from '../zalo/appApi.js';
-import { escapeHtml } from '../utils/format.js';
+import { escapeHtml, truncate } from '../utils/format.js';
 
 // Bridge start time (module load = process start)
 const _bridgeStartTime = Date.now();
@@ -243,6 +243,54 @@ function buildTopicUrl(topicId: number): string {
   const chatId = String(config.telegram.groupId);
   const internalChatId = chatId.startsWith('-100') ? chatId.slice(4) : chatId.replace(/^-/, '');
   return `https://t.me/c/${internalChatId}/${topicId}`;
+}
+
+function tgSenderName(ctx: Context): string {
+  const from = ctx.from;
+  if (!from) return 'Không rõ';
+  const fullName = [from.first_name, from.last_name].filter(Boolean).join(' ').trim();
+  return fullName || from.username || String(from.id);
+}
+
+function tgGeneralNotificationContent(msg: Context['message']): string {
+  if (!msg) return '';
+  if ('text' in msg && msg.text) return msg.text.trim();
+
+  const caption = 'caption' in msg ? msg.caption?.trim() : '';
+  if ('photo' in msg && msg.photo) return caption ? `[Ảnh] ${caption}` : '[Ảnh]';
+  if ('video' in msg && msg.video) return caption ? `[Video] ${caption}` : '[Video]';
+  if ('animation' in msg && msg.animation) return caption ? `[GIF] ${caption}` : '[GIF]';
+  if ('voice' in msg && msg.voice) return caption ? `[Tin nhắn thoại] ${caption}` : '[Tin nhắn thoại]';
+  if ('sticker' in msg && msg.sticker) return '[Sticker]';
+  if ('document' in msg && msg.document) {
+    const name = msg.document.file_name ?? 'file';
+    return caption ? `[File] ${name}: ${caption}` : `[File] ${name}`;
+  }
+  if ('poll' in msg && msg.poll) return `[Bình chọn] ${msg.poll.question}`;
+  if ('location' in msg && msg.location) return '[Vị trí]';
+  if ('contact' in msg && msg.contact) {
+    const name = [msg.contact.first_name, msg.contact.last_name].filter(Boolean).join(' ').trim();
+    return name ? `[Danh thiếp] ${name}` : '[Danh thiếp]';
+  }
+
+  return '[Tin nhắn]';
+}
+
+async function sendGeneralGroupNotification(ctx: Context): Promise<void> {
+  const chatId = config.telegram.group_notification_id;
+  if (!chatId) return;
+
+  const content = tgGeneralNotificationContent(ctx.message);
+  if (!content.trim()) return;
+
+  try {
+    await tgBot.telegram.sendMessage(
+      chatId,
+      truncate(`${tgSenderName(ctx)} đã nhắn trong General: ${content}`),
+    );
+  } catch (err) {
+    console.warn('[TG→Notification] Failed to send General message notification:', err);
+  }
 }
 
 /** Track in-progress QR login so we don't stack multiple flows. */
@@ -2074,6 +2122,9 @@ export function setupTelegramHandler(
       // Must originate from a topic (all bridged conversations live in topics)
       const topicId =
         'message_thread_id' in msg ? (msg.message_thread_id as number | undefined) : undefined;
+      if (topicId === undefined || topicId === 1) {
+        await sendGeneralGroupNotification(ctx);
+      }
       if (!topicId) return;
 
       // Zalo not connected yet
