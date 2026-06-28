@@ -529,6 +529,17 @@ const _memberCacheLoaded = new Set<string>();
  */
 const _inFlightMsgIds = new Set<string>();
 
+/** Dedupe admin delete events; Zalo can re-emit the same chat.delete payload. */
+const _notifiedDeleteKeys = new Set<string>();
+const DELETE_DEDUPE_MAX = 2000;
+
+function hasNotifiedDelete(key: string): boolean {
+  if (_notifiedDeleteKeys.has(key)) return true;
+  if (_notifiedDeleteKeys.size >= DELETE_DEDUPE_MAX) _notifiedDeleteKeys.clear();
+  _notifiedDeleteKeys.add(key);
+  return false;
+}
+
 /** The active 'message' handler, captured so /history can replay messages
  *  through the exact same pipeline AND await each one (guaranteeing order,
  *  which `listener.emit` cannot since the handler is async and not awaited). */
@@ -1547,6 +1558,19 @@ ${escapeHtml(photoCaption)}`
               ? String(item.destId)
               : undefined;
 
+          const deleteKey = [
+            zaloId,
+            type,
+            delActorUid,
+            globalId ?? '',
+            clientId ?? '',
+            destId ?? '',
+          ].join(':');
+          if (hasNotifiedDelete(deleteKey)) {
+            console.log(`[ZaloHandler] chat.delete: skip duplicate delete event key=${deleteKey}`);
+            continue;
+          }
+
           // Lookup lần lượt: msgStore (Zalo→TG messages) rồi sentMsgStore (TG→Zalo messages)
           const tgMsgId =
             (globalId ? (msgStore.getTgMsgId(globalId) ?? sentMsgStore.getByZaloMsgId(globalId)) : undefined) ??
@@ -1617,7 +1641,10 @@ ${escapeHtml(photoCaption)}`
   // Replays recent messages through the same main handler to refill bridges.
   api.listener.on('old_messages', (messages: ZaloMessage[]) => {
     if (!Array.isArray(messages) || messages.length === 0) return;
-    const sorted = [...messages].sort((a, b) => Number(a?.data?.ts ?? 0) - Number(b?.data?.ts ?? 0));
+    const sorted = [...messages]
+      .filter(m => (m?.data?.msgType ?? '') !== 'chat.delete')
+      .sort((a, b) => Number(a?.data?.ts ?? 0) - Number(b?.data?.ts ?? 0));
+    if (sorted.length === 0) return;
     console.log(`[Zalo→TG] Catch-up old_messages: replay ${sorted.length} item(s)`);
     for (const oldMsg of sorted) {
       api.listener.emit('message', oldMsg);
