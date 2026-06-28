@@ -487,15 +487,13 @@ function notificationContent(
 
 async function sendGroupNotification(
   senderName: string,
-  groupName: string | undefined,
+  topicName: string,
   content: string,
 ): Promise<void> {
   const chatId = config.telegram.group_notification_id;
   if (!chatId || !content.trim()) return;
 
-  const text = groupName
-    ? `${senderName} (${groupName}): ${content}`
-    : `${senderName}: ${content}`;
+  const text = `${senderName} đã nhắn trong ${topicName}: ${content}`;
 
   try {
     await tg.sendMessage(chatId, truncate(text));
@@ -751,7 +749,7 @@ export async function setupZaloHandler(api: ZaloAPI): Promise<void> {
 
       void sendGroupNotification(
         bridgeSenderName,
-        type === ThreadType.Group ? displayName : undefined,
+        displayName,
         notificationContent(msgType, text, media, msg.data.content),
       );
 
