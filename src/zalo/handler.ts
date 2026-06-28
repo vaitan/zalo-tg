@@ -437,6 +437,73 @@ function parseContent(raw: string | ZaloMediaContent | Record<string, unknown>):
   return { text: null, media: raw as ZaloMediaContent };
 }
 
+function notificationContent(
+  msgType: string,
+  text: string | null,
+  media: ZaloMediaContent,
+  rawContent: ZaloMessage['data']['content'],
+): string {
+  if (text !== null) return text.trim();
+
+  const title = media.title?.trim();
+  switch (msgType) {
+    case ZALO_MSG_TYPES.TEXT:
+      return title || (typeof rawContent === 'string' ? rawContent.trim() : '');
+    case ZALO_MSG_TYPES.PHOTO:
+      return title ? `[Ảnh] ${title}` : '[Ảnh]';
+    case ZALO_MSG_TYPES.VOICE:
+      return '[Tin nhắn thoại]';
+    case ZALO_MSG_TYPES.STICKER:
+      return '[Sticker]';
+    case ZALO_MSG_TYPES.DOODLE:
+      return '[Hình vẽ]';
+    case ZALO_MSG_TYPES.LINK:
+      return title || media.href || '[Link]';
+    case ZALO_MSG_TYPES.VIDEO:
+      return title ? `[Video] ${title}` : '[Video]';
+    case ZALO_MSG_TYPES.FILE:
+      return title ? `[File] ${title}` : '[File]';
+    case ZALO_MSG_TYPES.GIF:
+      return title ? `[GIF] ${title}` : '[GIF]';
+    case ZALO_MSG_TYPES.LOCATION:
+      return '[Vị trí]';
+    case ZALO_MSG_TYPES.WEBCONTENT:
+      return title || '[Nội dung web]';
+    case ZALO_MSG_TYPES.POLL:
+      try {
+        const params = JSON.parse(media.params ?? '{}') as { question?: string };
+        return params.question ? `[Bình chọn] ${params.question}` : '[Bình chọn]';
+      } catch {
+        return '[Bình chọn]';
+      }
+    case ZALO_MSG_TYPES.CONTACT:
+      return title ? `[Danh thiếp] ${title}` : '[Danh thiếp]';
+    case ZALO_MSG_TYPES.ECARD:
+      return title || '[Thiệp]';
+    default:
+      return title || media.description?.trim() || media.action?.trim() || `[${msgType}]`;
+  }
+}
+
+async function sendGroupNotification(
+  senderName: string,
+  groupName: string | undefined,
+  content: string,
+): Promise<void> {
+  const chatId = config.telegram.group_notification_id;
+  if (!chatId || !content.trim()) return;
+
+  const text = groupName
+    ? `${senderName} (${groupName}): ${content}`
+    : `${senderName}: ${content}`;
+
+  try {
+    await tg.sendMessage(chatId, truncate(text));
+  } catch (err) {
+    console.warn('[Zalo→TG] Failed to send group_notification_id message:', err);
+  }
+}
+
 // ── Poll helpers ─────────────────────────────────────────────────────────────
 
 import type { PollOptions } from 'zca-js';
@@ -681,6 +748,12 @@ export async function setupZaloHandler(api: ZaloAPI): Promise<void> {
       } else if (senderUid) {
         userCache.save(senderUid, bridgeSenderName);
       }
+
+      void sendGroupNotification(
+        bridgeSenderName,
+        type === ThreadType.Group ? displayName : undefined,
+        notificationContent(msgType, text, media, msg.data.content),
+      );
 
       const topicId = await getOrCreateTopic(zaloId, type, displayName, groupAvatarUrl);
 

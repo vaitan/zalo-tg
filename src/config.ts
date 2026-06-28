@@ -23,10 +23,21 @@ function envFlag(key: string, defaultValue = false): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
+function optionalNumberEnv(...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const raw = process.env[key];
+    if (raw === undefined || raw.trim() === '') continue;
+    const val = Number(raw);
+    return Number.isFinite(val) ? val : undefined;
+  }
+  return undefined;
+}
+
 export const config = {
   telegram: {
     token:       requireEnv('TG_TOKEN'),
     groupId:     Number(requireEnv('TG_GROUP_ID')),
+    group_notification_id: optionalNumberEnv('group_notification_id', 'GROUP_NOTIFICATION_ID'),
     /** URL của local Bot API server, ví dụ: http://localhost:8081.
      *  Chỉ dùng khi LOCAL_BOT_API=1 và TG_LOCAL_SERVER được set.
      *  Nếu không → dùng official api.telegram.org. */
