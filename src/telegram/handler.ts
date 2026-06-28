@@ -286,7 +286,7 @@ async function sendGeneralGroupNotification(ctx: Context): Promise<void> {
   try {
     await tgBot.telegram.sendMessage(
       chatId,
-      truncate(`${tgSenderName(ctx)} đã nhắn trong General: ${content}`),
+      truncate(`[${tgSenderName(ctx)}] đã nhắn trong [General]: ${content}`),
     );
   } catch (err) {
     console.warn('[TG→Notification] Failed to send General message notification:', err);

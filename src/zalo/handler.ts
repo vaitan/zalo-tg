@@ -493,7 +493,7 @@ async function sendGroupNotification(
   const chatId = config.telegram.group_notification_id;
   if (!chatId || !content.trim()) return;
 
-  const text = `${senderName} đã nhắn trong ${topicName}: ${content}`;
+  const text = `[${senderName}] đã nhắn trong [${topicName}]: ${content}`;
 
   try {
     await tg.sendMessage(chatId, truncate(text));
