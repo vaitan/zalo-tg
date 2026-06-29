@@ -41,6 +41,11 @@ while true; do
     continue
   fi
 
+  if [ "$EXIT_CODE" = "43" ]; then
+    echo "[Runner] Restart signal received (code 43). Restarting..."
+    continue
+  fi
+
   echo "[Runner] Bridge exited with code $EXIT_CODE — stopping."
   break
 done

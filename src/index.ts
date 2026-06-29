@@ -37,6 +37,12 @@ let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _initialLoginAttempted = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const APP_RESTART_EXIT_CODE = 43;
+
+function restartApp(reason: string): void {
+  console.warn(`[Boot] Restarting app: ${reason}`);
+  setTimeout(() => process.exit(APP_RESTART_EXIT_CODE), 500);
+}
 
 // ── Boot Zalo (also used when /login swaps in a fresh API) ───────────────────
 
@@ -250,11 +256,12 @@ function setupDisconnectionHandler(
       if (code === CloseReason.DuplicateConnection) {
         console.warn('[Boot] Zalo bị ngắt do duplicate connection.');
 
-        tgBot.telegram.sendMessage(
+        void tgBot.telegram.sendMessage(
           config.telegram.groupId,
           '⚠️ Zalo bị ngắt do đăng nhập trùng phiên. Dùng <b>/login</b> để vào lại.',
           { parse_mode: 'HTML' }
-        ).catch(() => undefined);
+        ).catch(() => undefined)
+          .finally(() => restartApp('duplicate connection'));
 
         return;
       }
