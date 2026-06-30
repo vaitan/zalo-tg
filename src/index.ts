@@ -173,6 +173,13 @@ async function infiniteReconnectLoop(
             )
             .catch(() => undefined);
 
+          tgBot.telegram
+            .sendMessage(
+              config.telegram.group_notification_id + '',
+              '✅ Đã có mạng. Zalo kết nối lại thành công.'
+            )
+            .catch(() => undefined);
+
           break;
         }
       } catch (err) {
@@ -263,6 +270,12 @@ function setupDisconnectionHandler(
         ).catch(() => undefined)
           .finally(() => restartApp('duplicate connection'));
 
+        void tgBot.telegram.sendMessage(
+          config.telegram.group_notification_id + '',
+          '⚠️ Zalo bị ngắt do đăng nhập trùng phiên. Dùng <b>/login</b> để vào lại.',
+          { parse_mode: 'HTML' }
+        ).catch(() => undefined)
+
         return;
       }
 
@@ -271,6 +284,12 @@ function setupDisconnectionHandler(
 
         tgBot.telegram.sendMessage(
           config.telegram.groupId,
+          '⚠️ Zalo đã ngắt phiên bridge. Vui lòng đăng nhập lại bằng <b>/login</b>.',
+          { parse_mode: 'HTML' }
+        ).catch(() => undefined);
+
+        tgBot.telegram.sendMessage(
+          config.telegram.group_notification_id + '',
           '⚠️ Zalo đã ngắt phiên bridge. Vui lòng đăng nhập lại bằng <b>/login</b>.',
           { parse_mode: 'HTML' }
         ).catch(() => undefined);
@@ -284,6 +303,11 @@ function setupDisconnectionHandler(
 
       tgBot.telegram.sendMessage(
         config.telegram.groupId,
+        '⚠️ Mất kết nối mạng. Bot đang tự động khôi phục...'
+      ).catch(() => undefined);
+
+      tgBot.telegram.sendMessage(
+        config.telegram.group_notification_id + '',
         '⚠️ Mất kết nối mạng. Bot đang tự động khôi phục...'
       ).catch(() => undefined);
 
