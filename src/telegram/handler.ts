@@ -277,6 +277,7 @@ function tgGeneralNotificationContent(msg: Context['message']): string {
 }
 
 async function sendGeneralGroupNotification(ctx: Context): Promise<void> {
+  if (tgSenderName(ctx) === 'Bạn') return; // skip self messages
   const chatId = config.telegram.group_notification_id;
   if (!chatId) return;
 

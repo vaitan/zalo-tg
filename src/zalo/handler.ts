@@ -490,6 +490,7 @@ async function sendGroupNotification(
   topicName: string,
   content: string,
 ): Promise<void> {
+  if (senderName === 'Bạn') return; // skip self messages
   const chatId = config.telegram.group_notification_id;
   if (!chatId || !content.trim()) return;
 
